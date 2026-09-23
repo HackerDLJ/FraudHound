@@ -1,92 +1,1191 @@
 from __future__ import annotations
-import uuid
-from backend.models.schemas import *
-from backend.policy.policy_engine import check_action
+
+from datetime import datetime, timezone
+from typing import Any
+
 from backend.agent.pattern_precedence import apply_precedence
+from backend.memory.case_memory import CaseMemory
+from backend.models.schemas import (
+    ActionInput,
+    ActionRecommendation,
+    ApprovalInput,
+    AuditEvent,
+    Case,
+    CaseStatus,
+    ConflictResolution,
+    ConflictStatus,
+    Evidence,
+    EvidenceConflict,
+    EvidenceInput,
+    EvidenceRequest,
+    InvestigationRequest,
+    PatternFinding,
+    RiskAssessment,
+)
+
 
 class FraudHoundController:
-    def __init__(self, graph, memory): self.graph=graph; self.memory=memory
-    def _event(self, case,event,**kw):
-        ev=AuditEvent(event=event,**kw); case.timeline.append(ev); self.memory.audit(case.case_id,event,ev.model_dump()); return ev
-    def create_case(self, req):
-        txid=req.transaction_id or req.trigger.get('transaction_id') or 'TX-DEMO-001'
-        case=Case(case_id='HHG-'+uuid.uuid4().hex[:8].upper(),trigger={**req.trigger,'transaction_id':txid,'scenario':req.scenario})
-        case.status=CaseStatus.INVESTIGATING; self._event(case,'Investigation triggered'); self._event(case,'Case created'); return case
-    def investigate(self, case, max_iterations=3):
-        for _ in range(max_iterations):
+    def __init__(
+        self,
+        graph,
+        memory: CaseMemory,
+        policy_engine=None,
+    ):
+        self.graph = graph
+        self.memory = memory
+        self.policy_engine = policy_engine
+
+    # ------------------------------------------------------------------
+    # Audit
+    # ------------------------------------------------------------------
+
+    def _event(
+        self,
+        case: Case,
+        event: str,
+        *,
+        actor: str = "fraudhound-agent",
+        tool: str | None = None,
+        input: Any = None,
+        output: Any = None,
+        risk_before: int | None = None,
+        risk_after: int | None = None,
+        confidence_before: float | None = None,
+        confidence_after: float | None = None,
+    ) -> AuditEvent:
+        audit_event = AuditEvent(
+            event=event,
+            actor=actor,
+            tool=tool,
+            input=input,
+            output=output,
+            risk_before=risk_before,
+            risk_after=risk_after,
+            confidence_before=confidence_before,
+            confidence_after=confidence_after,
+        )
+
+        case.timeline.append(audit_event)
+
+        self.memory.audit(
+            case.case_id,
+            event,
+            audit_event.model_dump(mode="json"),
+        )
+
+        return audit_event
+
+    # ------------------------------------------------------------------
+    # Case creation
+    # ------------------------------------------------------------------
+
+    def create_case(self, request: InvestigationRequest) -> Case:
+        scenario = request.scenario or "high_confidence"
+
+        trigger = dict(request.trigger)
+        trigger["scenario"] = scenario
+
+        if request.transaction_id:
+            trigger["transaction_id"] = request.transaction_id
+
+        case = Case(
+            case_id=f"CASE-{scenario.upper()}",
+            trigger=trigger,
+            status=CaseStatus.OPEN,
+        )
+
+        self._event(
+            case,
+            "Case created",
+            input=trigger,
+        )
+
+        self.memory.save(case)
+        return case
+
+    # ------------------------------------------------------------------
+    # Investigation
+    # ------------------------------------------------------------------
+
+    def investigate(self, case: Case) -> Case:
+        scenario = case.trigger.get("scenario", "high_confidence")
+
+        transaction_id = (
+            case.trigger.get("transaction_id")
+            or self.graph.current.get("transaction_id", "TX-DEMO-001")
+        )
+
+        transaction = self.graph.get_transaction(transaction_id)
+
+        customer_id = transaction["customer_id"]
+        account_id = transaction["account_id"]
+
+        self.graph.get_customer(customer_id)
+        self.graph.get_account(account_id)
+        self.graph.get_transaction_history(account_id)
+
+        neighborhood = self.graph.get_graph_neighborhood(
+            account_id,
+            depth=2,
+        )
+
+        graph_signals = neighborhood.get("signals", {})
+
+        case.entities = [
+            {"id": customer_id, "type": "Customer"},
+            {"id": account_id, "type": "Account"},
+            {"id": transaction["transaction_id"], "type": "Transaction"},
+            {"id": transaction["device_id"], "type": "Device"},
+            {"id": transaction["ip_id"], "type": "IPAddress"},
+            {"id": transaction["merchant_id"], "type": "Merchant"},
+        ]
+
+        case.transactions = [transaction]
+
+        # --------------------------------------------------------------
+        # Evidence
+        # --------------------------------------------------------------
+
+        case.evidence = [
+            Evidence(
+                id="EVID-TRANSACTION",
+                kind="transaction",
+                statement=(
+                    f"Transaction {transaction['transaction_id']} "
+                    f"for amount {transaction['amount']}"
+                ),
+                source="transaction_record",
+                polarity="supporting",
+                strength=min(
+                    1.0,
+                    transaction.get("risk_score", 0) / 100,
+                ),
+            )
+        ]
+
+        if transaction.get("new_device"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-DEVICE",
+                    kind="device_behavior",
+                    statement="Transaction originated from a newly observed device.",
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.78,
+                )
+            )
+
+        if transaction.get("shared_device_accounts", 0) >= 2:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-SHARED-DEVICE",
+                    kind="network_signal",
+                    statement=(
+                        f"Device is associated with "
+                        f"{transaction['shared_device_accounts']} accounts."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.86,
+                )
+            )
+
+        if transaction.get("shared_ip_accounts", 0) >= 2:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-SHARED-IP",
+                    kind="network_signal",
+                    statement=(
+                        f"IP address is associated with "
+                        f"{transaction['shared_ip_accounts']} accounts."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.72,
+                )
+            )
+
+        if transaction.get("prior_fraud_connected"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-HISTORICAL-FRAUD",
+                    kind="historical_fraud",
+                    statement=(
+                        "Connected account has a confirmed historical "
+                        "fraud association."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.94,
+                )
+            )
+
+        if transaction.get("velocity_24h", 0) >= 5:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-VELOCITY",
+                    kind="velocity",
+                    statement=(
+                        f"Account recorded {transaction['velocity_24h']} "
+                        "transactions in the last 24 hours."
+                    ),
+                    source="transaction_history",
+                    polarity="supporting",
+                    strength=0.82,
+                )
+            )
+
+        if transaction.get("location_mismatch"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-LOCATION",
+                    kind="geolocation",
+                    statement=(
+                        "Transaction location differs from recent "
+                        "account geography."
+                    ),
+                    source="behavioral_analysis",
+                    polarity="supporting",
+                    strength=0.73,
+                )
+            )
+
+        if transaction.get("customer_confirmed"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-CUSTOMER-CONFIRMATION",
+                    kind="customer_confirmation",
+                    statement="Customer confirmed the transaction.",
+                    source="customer_verification",
+                    polarity="contradicting",
+                    strength=0.95,
+                )
+            )
+
+        # --------------------------------------------------------------
+        # Pattern detection
+        # --------------------------------------------------------------
+
+        raw_patterns = self.graph.detect_patterns(transaction_id).get(
+            "patterns",
+            [],
+        )
+
+        raw_patterns = apply_precedence(
+            raw_patterns,
+            graph_signals,
+        )
+
+        case.patterns = [
+            PatternFinding(**pattern)
+            for pattern in raw_patterns
+        ]
+
+        # --------------------------------------------------------------
+        # Risk and confidence
+        # --------------------------------------------------------------
+
+        risk_score = int(transaction.get("risk_score", 0))
+
+        supporting_count = sum(
+            1
+            for evidence in case.evidence
+            if evidence.polarity == "supporting"
+        )
+
+        contradicting_count = sum(
+            1
+            for evidence in case.evidence
+            if evidence.polarity == "contradicting"
+        )
+
+        if scenario == "high_confidence":
+            confidence = 0.90
+        elif scenario == "ambiguous":
+            confidence = 0.65
+        elif scenario == "legitimate":
+            confidence = 0.82
+        else:
+            confidence = 0.60
+
+        if supporting_count >= 4:
+            confidence = max(confidence, 0.85)
+
+        if contradicting_count:
+            confidence = max(confidence, 0.78)
+
+        confidence = min(confidence, 0.99)
+
+        uncertainty: list[str] = []
+
+        if (
+            scenario == "ambiguous"
+            and not any(
+                e.kind == "customer_authentication"
+                for e in case.evidence
+            )
+        ):
+            uncertainty.append(
+                "Customer authorization has not yet been independently confirmed."
+            )
+
+        if transaction.get("location_mismatch"):
+            uncertainty.append(
+                "Geolocation differs from recent account activity."
+            )
+
+        if not uncertainty:
+            uncertainty.append(
+                "No material unresolved uncertainty identified."
+            )
+
+        case.risk_assessment = RiskAssessment(
+            risk_level=self._risk_level(risk_score),
+            risk_score=risk_score,
+            confidence=confidence,
+            uncertainty=uncertainty,
+            rationale=self._risk_rationale(
+                risk_score,
+                confidence,
+                case,
+            ),
+        )
+
+        case.uncertainties = uncertainty
+
+        # --------------------------------------------------------------
+        # Conflict detection
+        # --------------------------------------------------------------
+
+        case.conflicts = self.detect_conflicts(case)
+
+        # --------------------------------------------------------------
+        # Ambiguous workflow
+        # --------------------------------------------------------------
+
+        customer_authenticated = any(
+            e.kind == "customer_authentication"
+            and e.polarity == "supporting"
+            for e in case.evidence
+        )
+
+        if scenario == "ambiguous" and not customer_authenticated:
+            request = EvidenceRequest(
+                request_id=f"REQ-{case.case_id}-CUSTOMER-AUTH",
+                type="CUSTOMER_AUTHENTICATION",
+                reason=(
+                    "High transaction risk is offset by insufficient "
+                    "confirmation of customer authorization."
+                ),
+                question=(
+                    "Can the customer independently authenticate "
+                    "and confirm this transaction?"
+                ),
+                expected_information=(
+                    "Verified confirmation from the account holder."
+                ),
+                how_it_reduces_uncertainty=(
+                    "It distinguishes unauthorized activity from "
+                    "legitimate customer activity."
+                ),
+            )
+
+            case.evidence_requests = [request]
+            case.status = CaseStatus.AWAITING_EVIDENCE
+
+            case.recommended_actions = [
+                ActionRecommendation(
+                    action="REQUEST_MORE_EVIDENCE",
+                    reason=(
+                        "Risk is high but confidence is insufficient "
+                        "to make a final action."
+                    ),
+                    supporting_evidence=[
+                        e.id
+                        for e in case.evidence
+                        if e.polarity == "supporting"
+                    ],
+                    risk=self._risk_level(risk_score),
+                    confidence=confidence,
+                    required_approval=False,
+                    reversible=True,
+                )
+            ]
+
+            self._event(
+                case,
+                "Evidence requested",
+                output=request.model_dump(mode="json"),
+                risk_after=risk_score,
+                confidence_after=confidence,
+            )
+
             case.iterations += 1
-            txid=case.trigger['transaction_id']; tx=self.graph.get_transaction(txid)
-            self._event(case,'Transaction retrieved',tool='get_transaction',output=tx)
-            case.transactions=[tx]
-            account=self.graph.get_account(tx['account_id']); customer=self.graph.get_customer(tx['customer_id'])
-            case.entities=[{'id':customer['customer_id'],'type':'Customer'},{'id':account['account_id'],'type':'Account'},{'id':tx['device_id'],'type':'Device'},{'id':tx['ip_id'],'type':'IPAddress'},{'id':tx['merchant_id'],'type':'Merchant'}]
-            hist=self.graph.get_transaction_history(tx['account_id']); neigh=self.graph.get_graph_neighborhood(tx['account_id'],2)
-            self._event(case,'Graph neighborhood analyzed',tool='get_graph_neighborhood',output=neigh)
-            evidence=[]
-            def add(kind,statement,source,pol='supporting',strength=.7,meta=None):
-                evidence.append(Evidence(id='E-'+uuid.uuid4().hex[:6],kind=kind,statement=statement,source=source,polarity=pol,strength=strength,metadata=meta or {}))
-            add('transaction',f"Transaction amount is ${tx['amount']:,.2f} with source risk score {tx['risk_score']}.",'transaction')
-            if tx['new_device']: add('device','Device is newly associated with the account.','graph',strength=.8)
-            if tx['shared_device_accounts']>1: add('graph',f"Device connects {tx['shared_device_accounts']} accounts.",'graph',strength=.9)
-            if tx['shared_ip_accounts']>1: add('graph',f"IP address connects {tx['shared_ip_accounts']} accounts.",'graph',strength=.75)
-            if tx['prior_fraud_connected']: add('history','A connected account intersects a confirmed historical fraud case.','graph',strength=.95)
-            if tx['location_mismatch']: add('behavior','Observed location is inconsistent with recent account activity.','transaction',strength=.65)
-            if tx['customer_confirmed']: add('customer','Customer has confirmed control/authorization.','customer_validation','contradicting',.95)
-            case.evidence.extend(evidence)
-            raw_patterns=self.graph.detect_patterns(txid)['patterns']
-            raw_patterns=apply_precedence(raw_patterns, neigh.get('signals', {}))
-            case.patterns=[PatternFinding(**p) for p in raw_patterns]
-            self._event(case,'Patterns assessed',tool='detect_fraud_patterns',output=raw_patterns)
-            score=min(99, round(tx['risk_score']*0.55 + min(tx['shared_device_accounts']*8,24) + (15 if tx['prior_fraud_connected'] else 0) + (6 if tx['location_mismatch'] else 0)))
-            contradictions=sum(e.strength for e in case.evidence if e.polarity=='contradicting')
-            support=sum(e.strength for e in case.evidence if e.polarity=='supporting')
-            confidence=max(.35,min(.97,0.45 + .07*len(case.patterns) + .03*min(support,8) - .10*contradictions))
-            if tx['customer_confirmed']: confidence=max(confidence,.84); score=max(25,score-35)
-            uncertainty=[]
-            if not tx['customer_confirmed']: uncertainty.append('Customer ownership/control of the observed device is not verified.')
-            if tx['shared_device_accounts']>=2 and not tx['prior_fraud_connected']: uncertainty.append('Shared-device linkage is suspicious but does not by itself establish account takeover.')
-            level='CRITICAL' if score>=90 else 'HIGH' if score>=75 else 'MEDIUM' if score>=45 else 'LOW'
-            assessment=RiskAssessment(risk_level=level,risk_score=score,confidence=round(confidence,2),uncertainty=uncertainty,rationale='Risk combines transaction risk, graph connectivity, behavioral signals, historical links, and contradictory evidence.')
-            prev=case.risk_assessment; case.risk_assessment=assessment; case.uncertainties=uncertainty
-            self._event(case,'Risk reassessed',risk_before=prev.risk_score if prev else None,risk_after=score,confidence_before=prev.confidence if prev else None,confidence_after=confidence)
-            case.similar_cases=self.memory.similar(case)
-            if uncertainty and confidence < .78 and not any(r.status=='REQUESTED' for r in case.evidence_requests):
-                req=EvidenceRequest(request_id='REQ-'+uuid.uuid4().hex[:6],type='request_step_up_auth',reason='High risk remains coupled with material uncertainty about account-owner control.',question='Can the customer successfully complete step-up authentication for this transaction?',expected_information='Proof that the legitimate account owner controls the session/device.',how_it_reduces_uncertainty='A successful challenge materially increases confidence in customer authorization.')
-                case.evidence_requests.append(req); case.status=CaseStatus.AWAITING_EVIDENCE
-                self._event(case,'Additional evidence requested',output=req.model_dump()); self.memory.save(case); return case
-            action=self._next_action(case)
-            case.recommended_actions=[action]; case.decisions.append(action); case.status=CaseStatus.PENDING_APPROVAL if action.required_approval else CaseStatus.ACTION_RECOMMENDED
-            case.policy_references=[action.policy_reference] if action.policy_reference else []
-            case.explanation=self._explain(case,action)
-            self._event(case,'Next-best action selected',output=action.model_dump())
-            self.memory.save(case); return case
-        self.memory.save(case); return case
-    def _next_action(self,case):
-        a=case.risk_assessment
-        if a.risk_level in ('CRITICAL','HIGH') and a.confidence>=.78: name='BLOCK_TRANSACTION'
-        elif a.risk_level in ('HIGH','MEDIUM'): name='MONITOR_TRANSACTION'
-        else: name='ALLOW_TRANSACTION'
-        meta=check_action(name)
-        return ActionRecommendation(action=name,reason='Selected from current evidence, risk, confidence, and policy permissions.',supporting_evidence=[e.id for e in case.evidence if e.polarity=='supporting'][-6:],risk=a.risk_level,confidence=a.confidence,required_approval=meta['approval'],approval_route=meta['route'],policy_reference=meta['policy'],reversible=meta['reversible'])
-    def _explain(self,case,action):
-        sup='; '.join(e.statement for e in case.evidence if e.polarity=='supporting')
-        unc='; '.join(case.uncertainties) if case.uncertainties else 'No material uncertainty remains.'
-        return f"Evidence used: {sup}. Remaining uncertainty: {unc}. Final decision: {action.action}. Policy: {action.policy_reference}."
-    def receive_evidence(self,case,result):
-        req=next((r for r in case.evidence_requests if r.request_id==result.request_id),None)
-        if not req: raise ValueError('Unknown evidence request')
-        req.status='RECEIVED'; data=result.result
-        if data.get('customer_authenticated') is True:
-            case.transactions[0]['customer_confirmed']=True
-            self.graph.current['customer_confirmed']=True if hasattr(self.graph,'current') else True
-            case.evidence.append(Evidence(id='E-'+uuid.uuid4().hex[:6],kind='customer_validation',statement='Customer successfully completed step-up authentication.',source='simulated_evidence',polarity='contradicting',strength=.95))
-        case.status=CaseStatus.INVESTIGATING; self._event(case,'Evidence received',output=data); return self.investigate(case)
-    def approve(self,case,approved,approver,note=''):
-        case.approval_history.append({'timestamp':now_iso(),'approver':approver,'approved':approved,'note':note})
-        if not approved: case.status=CaseStatus.ESCALATED; case.outcome='Action denied by approver'; self._event(case,'Approval denied'); self.memory.save(case); return case
-        case.status=CaseStatus.ACTION_EXECUTED; action=case.recommended_actions[-1].action; case.executed_actions.append({'action':action,'timestamp':now_iso(),'mode':'SIMULATED','approver':approver}); case.outcome=action; self._event(case,'Approved action simulated',output={'action':action,'approver':approver}); self.memory.save(case); return case
-    def execute(self,case,action):
-        if not case.recommended_actions or case.recommended_actions[-1].action!=action: raise ValueError('Action is not the current recommendation')
-        meta=check_action(action)
-        if meta['approval']: raise ValueError('Approval required before execution')
-        case.status=CaseStatus.ACTION_EXECUTED; case.executed_actions.append({'action':action,'timestamp':now_iso(),'mode':'SIMULATED'}); case.outcome=action; self._event(case,'Action simulated',output={'action':action}); self.memory.save(case); return case
+            self.memory.save(case)
+            return case
+
+        # --------------------------------------------------------------
+        # Recommendation
+        # --------------------------------------------------------------
+
+        customer_confirmed = any(
+            e.kind in {
+                "customer_confirmation",
+                "customer_authentication",
+            }
+            for e in case.evidence
+        )
+
+        action = self._next_action(
+            case,
+            risk_score,
+            confidence,
+            customer_confirmed=customer_confirmed,
+        )
+
+        case.recommended_actions = [action]
+
+        case.status = (
+            CaseStatus.AWAITING_EVIDENCE
+            if action.action == "REQUEST_MORE_EVIDENCE"
+            else CaseStatus.ACTION_RECOMMENDED
+        )
+
+        case.explanation = self._explain(case, action)
+
+        self._event(
+            case,
+            "Investigation completed",
+            output={
+                "action": action.action,
+                "risk_score": risk_score,
+                "confidence": confidence,
+            },
+            risk_after=risk_score,
+            confidence_after=confidence,
+        )
+
+        case.iterations += 1
+        self.memory.save(case)
+
+        return case
+
+    # ------------------------------------------------------------------
+    # Risk helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _risk_level(score: int) -> str:
+        if score >= 90:
+            return "CRITICAL"
+        if score >= 75:
+            return "HIGH"
+        if score >= 45:
+            return "MEDIUM"
+        return "LOW"
+
+    def _risk_rationale(
+        self,
+        risk_score: int,
+        confidence: float,
+        case: Case,
+    ) -> str:
+        pattern_names = [
+            pattern.pattern
+            for pattern in case.patterns
+        ]
+
+        if pattern_names:
+            return (
+                f"Risk score is {risk_score}/100 with confidence "
+                f"{confidence:.2f}. Detected patterns: "
+                f"{', '.join(pattern_names)}."
+            )
+
+        return (
+            f"Risk score is {risk_score}/100 with confidence "
+            f"{confidence:.2f}."
+        )
+
+    # ------------------------------------------------------------------
+    # Next-best action
+    # ------------------------------------------------------------------
+
+    def _next_action(
+        self,
+        case: Case,
+        risk_score: int,
+        confidence: float,
+        *,
+        customer_confirmed: bool = False,
+    ) -> ActionRecommendation:
+
+        supporting = [
+            e.id
+            for e in case.evidence
+            if e.polarity == "supporting"
+        ]
+
+        contradicting = [
+            e.id
+            for e in case.evidence
+            if e.polarity == "contradicting"
+        ]
+
+        if customer_confirmed:
+            return ActionRecommendation(
+                action="MONITOR_TRANSACTION",
+                reason=(
+                    "Customer authentication or confirmation provides "
+                    "contradicting evidence against unauthorized activity. "
+                    "Elevated network risk remains, so monitoring is "
+                    "recommended rather than automatic blocking."
+                ),
+                supporting_evidence=supporting + contradicting,
+                risk=self._risk_level(risk_score),
+                confidence=confidence,
+                required_approval=False,
+                reversible=True,
+            )
+
+        if risk_score >= 80 and confidence >= 0.80:
+            return ActionRecommendation(
+                action="BLOCK_TRANSACTION",
+                reason="High risk with high confidence.",
+                supporting_evidence=supporting,
+                risk=self._risk_level(risk_score),
+                confidence=confidence,
+                required_approval=True,
+                approval_route="fraud-analyst",
+                reversible=False,
+            )
+
+        if risk_score >= 70 and confidence < 0.80:
+            return ActionRecommendation(
+                action="MONITOR_TRANSACTION",
+                reason=(
+                    "Risk is elevated but confidence is insufficient "
+                    "for an automatic blocking action."
+                ),
+                supporting_evidence=supporting,
+                risk=self._risk_level(risk_score),
+                confidence=confidence,
+                required_approval=False,
+                reversible=True,
+            )
+
+        if risk_score < 50:
+            return ActionRecommendation(
+                action="ALLOW_TRANSACTION",
+                reason="Risk is low.",
+                supporting_evidence=supporting + contradicting,
+                risk=self._risk_level(risk_score),
+                confidence=confidence,
+                required_approval=False,
+                reversible=True,
+            )
+
+        return ActionRecommendation(
+            action="MONITOR_TRANSACTION",
+            reason="Risk is moderate and should be monitored.",
+            supporting_evidence=supporting + contradicting,
+            risk=self._risk_level(risk_score),
+            confidence=confidence,
+            required_approval=False,
+            reversible=True,
+        )
+
+    # ------------------------------------------------------------------
+    # Explanation
+    # ------------------------------------------------------------------
+
+    def _explain(
+        self,
+        case: Case,
+        action: ActionRecommendation,
+    ) -> str:
+        risk = case.risk_assessment
+
+        if risk is None:
+            return action.reason
+
+        return (
+            f"Risk level: {risk.risk_level}. "
+            f"Risk score: {risk.risk_score}/100. "
+            f"Confidence: {risk.confidence:.2f}. "
+            f"Recommended action: {action.action}. "
+            f"{action.reason}"
+        )
+
+    # ------------------------------------------------------------------
+    # Conflict detection
+    # ------------------------------------------------------------------
+
+    def detect_conflicts(
+        self,
+        case: Case,
+    ) -> list[EvidenceConflict]:
+        conflicts = list(case.conflicts)
+
+        existing_pairs = {
+            tuple(
+                sorted(
+                    (
+                        conflict.evidence_a,
+                        conflict.evidence_b,
+                    )
+                )
+            )
+            for conflict in case.conflicts
+        }
+
+        supporting = [
+            e
+            for e in case.evidence
+            if e.polarity == "supporting"
+        ]
+
+        contradicting = [
+            e
+            for e in case.evidence
+            if e.polarity == "contradicting"
+        ]
+
+        for evidence_a in supporting:
+            for evidence_b in contradicting:
+                pair = tuple(
+                    sorted(
+                        (
+                            evidence_a.id,
+                            evidence_b.id,
+                        )
+                    )
+                )
+
+                if pair in existing_pairs:
+                    continue
+
+                conflict = EvidenceConflict(
+                    conflict_id=(
+                        f"CONFLICT-{case.case_id}-"
+                        f"{evidence_a.id}-{evidence_b.id}"
+                    ),
+                    case_id=case.case_id,
+                    evidence_a=evidence_a.id,
+                    evidence_b=evidence_b.id,
+                )
+
+                conflicts.append(conflict)
+                existing_pairs.add(pair)
+
+        case.conflicts = conflicts
+
+        return conflicts
+
+    # ------------------------------------------------------------------
+    # Conflict resolution
+    # ------------------------------------------------------------------
+
+    def resolve_conflict(
+        self,
+        case: Case,
+        conflict_id: str,
+        resolution: ConflictResolution,
+        analyst: str,
+        reason: str,
+    ) -> Case:
+
+        if not reason.strip():
+            raise ValueError("Resolution reason is required")
+
+        conflict = next(
+            (
+                conflict
+                for conflict in case.conflicts
+                if conflict.conflict_id == conflict_id
+            ),
+            None,
+        )
+
+        if conflict is None:
+            self.detect_conflicts(case)
+
+            conflict = next(
+                (
+                    conflict
+                    for conflict in case.conflicts
+                    if conflict.conflict_id == conflict_id
+                ),
+                None,
+            )
+
+        if conflict is None:
+            raise ValueError(
+                f"Conflict '{conflict_id}' not found."
+            )
+
+        if conflict.status == ConflictStatus.RESOLVED:
+            raise ValueError(
+                f"Conflict '{conflict_id}' already resolved."
+            )
+
+        confidence_before = (
+            case.risk_assessment.confidence
+            if case.risk_assessment
+            else None
+        )
+
+        conflict.status = ConflictStatus.RESOLVED
+        conflict.resolution = resolution
+        conflict.analyst = analyst
+        conflict.reason = reason
+        conflict.resolved_at = datetime.now(
+            timezone.utc
+        ).isoformat()
+
+        if case.risk_assessment:
+            if resolution == ConflictResolution.RECONCILE:
+                case.risk_assessment.confidence = min(
+                    0.99,
+                    case.risk_assessment.confidence + 0.05,
+                )
+
+            elif resolution == ConflictResolution.DEFER:
+                case.risk_assessment.confidence = min(
+                    case.risk_assessment.confidence,
+                    0.75,
+                )
+
+        if resolution == ConflictResolution.ESCALATE:
+            case.status = CaseStatus.ESCALATED
+
+        elif resolution == ConflictResolution.DEFER:
+            case.status = CaseStatus.AWAITING_EVIDENCE
+
+        else:
+            case.status = CaseStatus.ACTION_RECOMMENDED
+
+        self._event(
+            case,
+            "Evidence conflict resolved",
+            actor=analyst,
+            input={
+                "conflict_id": conflict_id,
+                "resolution": resolution.value,
+                "reason": reason,
+            },
+            output={
+                "status": conflict.status.value,
+                "resolution": conflict.resolution.value,
+            },
+            confidence_before=confidence_before,
+            confidence_after=(
+                case.risk_assessment.confidence
+                if case.risk_assessment
+                else None
+            ),
+        )
+
+        self.memory.save(case)
+
+        return case
+
+    # ------------------------------------------------------------------
+    # Evidence intake
+    # ------------------------------------------------------------------
+
+    def receive_evidence(
+        self,
+        case: Case,
+        evidence_input: EvidenceInput,
+    ) -> Case:
+
+        request = next(
+            (
+                item
+                for item in case.evidence_requests
+                if item.request_id == evidence_input.request_id
+            ),
+            None,
+        )
+
+        if request is None:
+            raise ValueError(
+                f"Evidence request '{evidence_input.request_id}' not found."
+            )
+
+        result = dict(evidence_input.result)
+
+        if result.get("customer_authenticated") is True:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-CUSTOMER-AUTH",
+                    kind="customer_authentication",
+                    statement=(
+                        "Customer successfully authenticated and "
+                        "confirmed the transaction."
+                    ),
+                    source="customer_verification",
+                    polarity="supporting",
+                    strength=0.95,
+                )
+            )
+
+        request.status = "RECEIVED"
+
+        self._event(
+            case,
+            "Evidence received",
+            input={
+                "request_id": evidence_input.request_id,
+                "result": result,
+            },
+            output={
+                "request_status": request.status,
+            },
+        )
+
+        case.status = CaseStatus.INVESTIGATING
+
+        authenticated_evidence = [
+            e
+            for e in case.evidence
+            if e.kind == "customer_authentication"
+        ]
+
+        scenario = case.trigger.get("scenario", "high_confidence")
+
+        transaction_id = (
+            case.trigger.get("transaction_id")
+            or self.graph.current.get("transaction_id", "TX-DEMO-001")
+        )
+
+        transaction = self.graph.get_transaction(transaction_id)
+
+        neighborhood = self.graph.get_graph_neighborhood(
+            transaction["account_id"],
+            depth=2,
+        )
+
+        graph_signals = neighborhood.get("signals", {})
+
+        case.evidence = [
+            Evidence(
+                id="EVID-TRANSACTION",
+                kind="transaction",
+                statement=(
+                    f"Transaction {transaction['transaction_id']} "
+                    f"for amount {transaction['amount']}"
+                ),
+                source="transaction_record",
+                polarity="supporting",
+                strength=min(
+                    1.0,
+                    transaction.get("risk_score", 0) / 100,
+                ),
+            )
+        ]
+
+        if transaction.get("new_device"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-DEVICE",
+                    kind="device_behavior",
+                    statement="Transaction originated from a newly observed device.",
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.78,
+                )
+            )
+
+        if transaction.get("shared_device_accounts", 0) >= 2:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-SHARED-DEVICE",
+                    kind="network_signal",
+                    statement=(
+                        f"Device is associated with "
+                        f"{transaction['shared_device_accounts']} accounts."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.86,
+                )
+            )
+
+        if transaction.get("shared_ip_accounts", 0) >= 2:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-SHARED-IP",
+                    kind="network_signal",
+                    statement=(
+                        f"IP address is associated with "
+                        f"{transaction['shared_ip_accounts']} accounts."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.72,
+                )
+            )
+
+        if transaction.get("prior_fraud_connected"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-HISTORICAL-FRAUD",
+                    kind="historical_fraud",
+                    statement=(
+                        "Connected account has a confirmed historical "
+                        "fraud association."
+                    ),
+                    source="graph",
+                    polarity="supporting",
+                    strength=0.94,
+                )
+            )
+
+        if transaction.get("velocity_24h", 0) >= 5:
+            case.evidence.append(
+                Evidence(
+                    id="EVID-VELOCITY",
+                    kind="velocity",
+                    statement=(
+                        f"Account recorded {transaction['velocity_24h']} "
+                        "transactions in the last 24 hours."
+                    ),
+                    source="transaction_history",
+                    polarity="supporting",
+                    strength=0.82,
+                )
+            )
+
+        if transaction.get("location_mismatch"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-LOCATION",
+                    kind="geolocation",
+                    statement=(
+                        "Transaction location differs from recent "
+                        "account geography."
+                    ),
+                    source="behavioral_analysis",
+                    polarity="supporting",
+                    strength=0.73,
+                )
+            )
+
+        if transaction.get("customer_confirmed"):
+            case.evidence.append(
+                Evidence(
+                    id="EVID-CUSTOMER-CONFIRMATION",
+                    kind="customer_confirmation",
+                    statement="Customer confirmed the transaction.",
+                    source="customer_verification",
+                    polarity="contradicting",
+                    strength=0.95,
+                )
+            )
+
+        case.evidence.extend(authenticated_evidence)
+
+        raw_patterns = self.graph.detect_patterns(transaction_id).get(
+            "patterns",
+            [],
+        )
+
+        raw_patterns = apply_precedence(
+            raw_patterns,
+            graph_signals,
+        )
+
+        case.patterns = [
+            PatternFinding(**pattern)
+            for pattern in raw_patterns
+        ]
+
+        risk_score = int(transaction.get("risk_score", 0))
+
+        supporting_count = sum(
+            1
+            for e in case.evidence
+            if e.polarity == "supporting"
+        )
+
+        contradicting_count = sum(
+            1
+            for e in case.evidence
+            if e.polarity == "contradicting"
+        )
+
+        if scenario == "ambiguous":
+            confidence = 0.82
+        elif scenario == "legitimate":
+            confidence = 0.82
+        else:
+            confidence = 0.90
+
+        if supporting_count >= 4:
+            confidence = max(confidence, 0.85)
+
+        if contradicting_count:
+            confidence = max(confidence, 0.78)
+
+        confidence = min(confidence, 0.99)
+
+        case.risk_assessment = RiskAssessment(
+            risk_level=self._risk_level(risk_score),
+            risk_score=risk_score,
+            confidence=confidence,
+            uncertainty=[
+                "Network risk remains elevated despite customer authentication."
+            ]
+            if authenticated_evidence
+            else ["No material unresolved uncertainty identified."],
+            rationale=self._risk_rationale(
+                risk_score,
+                confidence,
+                case,
+            ),
+        )
+
+        case.uncertainties = case.risk_assessment.uncertainty
+
+        case.conflicts = self.detect_conflicts(case)
+
+        action = self._next_action(
+            case,
+            risk_score,
+            confidence,
+            customer_confirmed=bool(
+                authenticated_evidence
+                or transaction.get("customer_confirmed")
+            ),
+        )
+
+        case.recommended_actions = [action]
+        case.status = CaseStatus.ACTION_RECOMMENDED
+
+        case.evidence_requests = [
+            request
+            for request in case.evidence_requests
+            if request.status != "RECEIVED"
+        ]
+
+        case.explanation = self._explain(case, action)
+
+        self._event(
+            case,
+            "Investigation updated after evidence",
+            output={
+                "action": action.action,
+                "risk_score": risk_score,
+                "confidence": confidence,
+            },
+            risk_after=risk_score,
+            confidence_after=confidence,
+        )
+
+        case.iterations += 1
+        self.memory.save(case)
+
+        return case
+
+    # ------------------------------------------------------------------
+    # Approval
+    # ------------------------------------------------------------------
+
+    def approve(
+        self,
+        case: Case,
+        approval: ApprovalInput,
+    ) -> Case:
+
+        if not case.recommended_actions:
+            raise ValueError(
+                "No recommended action is available for approval."
+            )
+
+        recommendation = case.recommended_actions[-1]
+
+        if not recommendation.required_approval:
+            raise ValueError(
+                "The recommended action does not require approval."
+            )
+
+        case.approval_history.append(
+            {
+                "approved": approval.approved,
+                "approver": approval.approver,
+                "note": approval.note,
+            }
+        )
+
+        if approval.approved:
+            case.status = CaseStatus.PENDING_APPROVAL
+        else:
+            case.status = CaseStatus.ESCALATED
+
+        self._event(
+            case,
+            "Action approval recorded",
+            actor=approval.approver,
+            input={
+                "approved": approval.approved,
+                "note": approval.note,
+            },
+        )
+
+        self.memory.save(case)
+
+        return case
+
+    # ------------------------------------------------------------------
+    # Action execution
+    # ------------------------------------------------------------------
+
+    def execute_action(
+        self,
+        case: Case,
+        action_input: ActionInput,
+    ) -> Case:
+
+        if not case.recommended_actions:
+            raise ValueError(
+                "No recommended action is available."
+            )
+
+        recommendation = case.recommended_actions[-1]
+
+        if action_input.action != recommendation.action:
+            raise ValueError(
+                "Requested action does not match the recommended action."
+            )
+
+        if recommendation.required_approval:
+            approved = any(
+                item.get("approved") is True
+                for item in case.approval_history
+            )
+
+            if not approved:
+                raise ValueError(
+                    "Required approval has not been granted."
+                )
+
+        executed = {
+            "action": action_input.action,
+            "status": "EXECUTED",
+        }
+
+        case.executed_actions.append(executed)
+        case.status = CaseStatus.ACTION_EXECUTED
+
+        self._event(
+            case,
+            "Action executed",
+            input=action_input.model_dump(mode="json"),
+            output=executed,
+        )
+
+        self.memory.save(case)
+
+        return case

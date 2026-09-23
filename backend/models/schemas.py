@@ -21,6 +21,27 @@ class Evidence(BaseModel):
     timestamp: str = Field(default_factory=now_iso)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+class ConflictResolution(str, Enum):
+    RECONCILE = 'RECONCILE'
+    ESCALATE = 'ESCALATE'
+    DEFER = 'DEFER'
+
+class ConflictStatus(str, Enum):
+    OPEN = 'OPEN'
+    RESOLVED = 'RESOLVED'
+
+class EvidenceConflict(BaseModel):
+    conflict_id: str
+    case_id: str
+    evidence_a: str
+    evidence_b: str
+    status: ConflictStatus = ConflictStatus.OPEN
+    resolution: ConflictResolution | None = None
+    analyst: str | None = None
+    reason: str | None = None
+    created_at: str = Field(default_factory=now_iso)
+    resolved_at: str | None = None
+
 class PatternFinding(BaseModel):
     pattern: str
     confidence: float = Field(ge=0, le=1)
@@ -76,6 +97,7 @@ class Case(BaseModel):
     entities: list[dict[str, Any]] = Field(default_factory=list)
     transactions: list[dict[str, Any]] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
+    conflicts: list[EvidenceConflict] = Field(default_factory=list)
     findings: list[str] = Field(default_factory=list)
     patterns: list[PatternFinding] = Field(default_factory=list)
     risk_assessment: RiskAssessment | None = None
@@ -108,3 +130,8 @@ class ApprovalInput(BaseModel):
 
 class ActionInput(BaseModel):
     action: str
+
+class ConflictResolutionInput(BaseModel):
+    resolution: ConflictResolution
+    analyst: str = 'demo-analyst'
+    reason: str
