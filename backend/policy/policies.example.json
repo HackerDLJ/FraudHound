@@ -1,0 +1,6 @@
+[
+  {"policy_id":"POLICY-TXN-07","title":"High-risk transaction intervention","action":"BLOCK_TRANSACTION","approval_role":"FRAUD_ANALYST","reversible":true},
+  {"policy_id":"POLICY-ATO-04","title":"Account freeze control","action":"FREEZE_ACCOUNT","approval_role":"FRAUD_ANALYST","reversible":true},
+  {"policy_id":"POLICY-EVID-02","title":"Step-up authentication","action":"REQUEST_STEP_UP_AUTH","approval_role":null,"reversible":true},
+  {"policy_id":"POLICY-SAR-01","title":"Suspicious activity reporting","action":"FILE_SAR","approval_role":"COMPLIANCE_OFFICER","reversible":false}
+]

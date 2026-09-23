@@ -1,0 +1,7 @@
+/* Starter graph-derived signals. Tune thresholds only after HHGOA_IEEE schema inspection. */
+CREATE QUERY sharedDeviceAccounts(STRING device_id) FOR GRAPH HHGOA_IEEE {
+  D={Device.*}; A=SELECT a FROM D:d -(ASSOCIATED_WITH)-> Account:a WHERE d.device_id==device_id; PRINT A;
+}
+CREATE QUERY sharedIPAccounts(STRING ip_id) FOR GRAPH HHGOA_IEEE {
+  I={IPAddress.*}; A=SELECT a FROM I:i -(IP_ASSOCIATED_WITH)-> Account:a WHERE i.ip_id==ip_id; PRINT A;
+}

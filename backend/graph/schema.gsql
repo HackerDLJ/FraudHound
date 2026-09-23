@@ -1,0 +1,27 @@
+CREATE VERTEX Customer(PRIMARY_ID customer_id STRING, name STRING, status STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Account(PRIMARY_ID account_id STRING, customer_id STRING, status STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Transaction(PRIMARY_ID transaction_id STRING, amount DOUBLE, risk_score INT, event_time DATETIME) WITH primary_id_as_attribute="true";
+CREATE VERTEX Device(PRIMARY_ID device_id STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX IPAddress(PRIMARY_ID ip_id STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Merchant(PRIMARY_ID merchant_id STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX FraudCase(PRIMARY_ID case_id STRING, status STRING, outcome STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Evidence(PRIMARY_ID evidence_id STRING, kind STRING, statement STRING, strength DOUBLE) WITH primary_id_as_attribute="true";
+CREATE VERTEX FraudPattern(PRIMARY_ID pattern_id STRING, name STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Policy(PRIMARY_ID policy_id STRING, title STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Analyst(PRIMARY_ID analyst_id STRING, name STRING) WITH primary_id_as_attribute="true";
+CREATE VERTEX Action(PRIMARY_ID action_id STRING, action_type STRING, status STRING) WITH primary_id_as_attribute="true";
+
+CREATE DIRECTED EDGE OWNS(FROM Customer, TO Account);
+CREATE DIRECTED EDGE PERFORMED(FROM Account, TO Transaction);
+CREATE DIRECTED EDGE TO(FROM Transaction, TO Merchant);
+CREATE DIRECTED EDGE USED(FROM Transaction, TO Device);
+CREATE DIRECTED EDGE FROM_IP(FROM Transaction, TO IPAddress);
+CREATE DIRECTED EDGE ASSOCIATED_WITH(FROM Device, TO Account);
+CREATE DIRECTED EDGE IP_ASSOCIATED_WITH(FROM IPAddress, TO Account);
+CREATE DIRECTED EDGE INVOLVED_IN(FROM Customer, TO FraudCase);
+CREATE DIRECTED EDGE CONTAINS(FROM FraudCase, TO Evidence);
+CREATE DIRECTED EDGE HAS_PATTERN(FROM FraudCase, TO FraudPattern);
+CREATE DIRECTED EDGE USED_POLICY(FROM FraudCase, TO Policy);
+CREATE DIRECTED EDGE RESULTED_IN(FROM FraudCase, TO Action);
+CREATE DIRECTED EDGE APPROVED_BY(FROM Action, TO Analyst);
+CREATE GRAPH HHGOA_IEEE(*)

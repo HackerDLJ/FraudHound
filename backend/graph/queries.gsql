@@ -1,0 +1,15 @@
+CREATE QUERY getTransaction(STRING transaction_id) FOR GRAPH HHGOA_IEEE {
+  Start = {Transaction.*}; Result = SELECT t FROM Start:t WHERE t.transaction_id == transaction_id; PRINT Result;
+}
+CREATE QUERY getCustomer(STRING customer_id) FOR GRAPH HHGOA_IEEE {
+  Start = {Customer.*}; Result = SELECT c FROM Start:c WHERE c.customer_id == customer_id; PRINT Result;
+}
+CREATE QUERY getAccount(STRING account_id) FOR GRAPH HHGOA_IEEE {
+  Start = {Account.*}; Result = SELECT a FROM Start:a WHERE a.account_id == account_id; PRINT Result;
+}
+CREATE QUERY getTransactionHistory(STRING account_id) FOR GRAPH HHGOA_IEEE {
+  A = {Account.*}; T = SELECT t FROM A:a -(PERFORMED)-> Transaction:t WHERE a.account_id == account_id; PRINT T;
+}
+CREATE QUERY getNeighborhood(STRING entity_id, INT depth) FOR GRAPH HHGOA_IEEE {
+  Seed = {ANY.*}; N = SELECT v FROM Seed:s -(ANY:ANY*1..depth)-> ANY:v WHERE s.*.id == entity_id; PRINT N;
+}
