@@ -1,21 +1,6 @@
-# FraudHound v0.2
+# FraudHound
 
 Graph-powered agentic fraud investigation and next-best-action prototype.
-
-## What is implemented
-
-- FastAPI backend with a real investigation loop.
-- SQLite case/audit persistence.
-- Pluggable graph adapter: `MockGraphAdapter` for local/demo use and `TigerGraphAdapter` for production.
-- Deterministic evidence-grounded fraud pattern detection.
-- Separate risk, confidence, and uncertainty.
-- Controlled evidence-request and reassessment loop.
-- Policy/permission engine and approval gates.
-- Persistent case memory and similar-case retrieval.
-- GraphRAG-style context builder for graph + policy + historical case evidence.
-- Demo scenarios: high-confidence fraud, ambiguous fraud that changes after evidence, legitimate transaction.
-- Benchmark runner that reads benchmark cases from the configured dataset instead of hardcoding labels.
-- Dark analyst dashboard served by FastAPI.
 
 ## Important dataset rule
 
