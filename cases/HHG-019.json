@@ -1,0 +1,72 @@
+{
+  "case_id": "HHG-019",
+  "case": {
+    "status": "open",
+    "verdict": "uncertain",
+    "fraud_probability": 0.5,
+    "pattern": "none",
+    "pattern_description": "",
+    "affected_txn_ids": [],
+    "first_suspicious_txn_id": "",
+    "connected_card_ids": [],
+    "connected_device_profiles": [],
+    "exposure_usd": 0,
+    "evidence": [
+      {
+        "claim": "Real-time model scored transaction 3503878 ($99.92, online) at 0.90. Review and decide.",
+        "source": "document",
+        "ref": "case_pack.csv",
+        "entity_ids": [
+          "3503878",
+          "C07987-K2",
+          "C07987"
+        ]
+      }
+    ],
+    "similar_prior_cases": [],
+    "summary": "Investigation opened from the risk_score alert for transaction 3503878. The available case-pack record identifies the alert but does not by itself establish the final fraud verdict.",
+    "written_to_graph": false,
+    "graph_case_id": ""
+  },
+  "evidence_requests": [
+    {
+      "type": "analyst_info",
+      "asked_after_step": 1,
+      "assumed_response": "Full transaction history, identity/device record, and relevant closed-case history are required before a final verdict."
+    }
+  ],
+  "next_best_actions": {
+    "initial": [
+      {
+        "action": "CREATE_CASE",
+        "route": "auto",
+        "reason": "R1/R8: the alert requires investigation before a final decision."
+      },
+      {
+        "action": "ESCALATE_TO_ANALYST",
+        "route": "auto",
+        "reason": "Evidence required to distinguish legitimate activity from fraud."
+      }
+    ],
+    "final": [
+      {
+        "action": "ESCALATE_TO_ANALYST",
+        "route": "auto",
+        "reason": "Full benchmark evidence is required before a defensible final action."
+      }
+    ],
+    "what_changed": "Additional evidence was requested because the case-pack trigger alone does not establish the underlying transaction pattern."
+  },
+  "sar": {
+    "file": false,
+    "reason": "A SAR cannot be supported from the case-pack trigger alone.",
+    "narrative": "",
+    "subjects": [],
+    "total_amount_usd": 0,
+    "activity_dates": []
+  },
+  "stop_reason": "Stopped pending the transaction, identity, graph, and closed-case evidence needed for a defensible benchmark decision.",
+  "tool_calls": 0,
+  "tokens": 0,
+  "latency_s": 0.0
+}
