@@ -20,5 +20,5 @@ FraudHound is designed around a core principle:
 
 > **AI may reason over evidence, but deterministic controls remain authoritative over actions.**
 
-*Check Out the Releases for the Development Process*
+*Check Out the [Releases](https://github.com/HackerDLJ/FraudHound/releases) for the Development Process*
 ---
