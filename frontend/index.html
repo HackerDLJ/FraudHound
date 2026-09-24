@@ -55,6 +55,11 @@ button.ghost{
   background:transparent
 }
 
+button:disabled{
+  cursor:not-allowed;
+  opacity:.55
+}
+
 .shell{min-height:100vh}
 
 .top{
@@ -644,6 +649,238 @@ h3{
   background:#291217
 }
 
+/* =========================================================
+   MERKLE BATCH AUDIT
+   ========================================================= */
+
+.merkle-section{
+  margin-top:18px;
+  border-top:1px solid var(--line);
+  padding-top:18px
+}
+
+.merkle-header{
+  display:flex;
+  align-items:flex-start;
+  justify-content:space-between;
+  gap:12px;
+  flex-wrap:wrap
+}
+
+.merkle-header-actions{
+  display:flex;
+  gap:8px;
+  flex-wrap:wrap
+}
+
+.merkle-intro{
+  color:#aeb9c5;
+  max-width:850px;
+  margin:4px 0 0
+}
+
+.merkle-empty{
+  margin-top:12px;
+  padding:18px;
+  border:1px dashed #334252;
+  border-radius:9px;
+  background:#0a1118;
+  text-align:center;
+  color:var(--muted)
+}
+
+.merkle-batches{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:12px;
+  margin-top:14px
+}
+
+.merkle-card{
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:linear-gradient(180deg,#0d161f,#091018);
+  padding:13px
+}
+
+.merkle-card.valid{
+  border-color:#285b49
+}
+
+.merkle-card.invalid{
+  border-color:#67303a
+}
+
+.merkle-card-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:8px;
+  margin-bottom:11px
+}
+
+.merkle-id{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:10px;
+  color:#c8d4df;
+  word-break:break-all
+}
+
+.merkle-status{
+  flex:0 0 auto;
+  padding:4px 7px;
+  border-radius:999px;
+  border:1px solid var(--line);
+  font-size:9px;
+  font-weight:850
+}
+
+.merkle-status.valid{
+  color:var(--green);
+  border-color:#235a45;
+  background:#0d241b
+}
+
+.merkle-status.invalid{
+  color:var(--red);
+  border-color:#67303a;
+  background:#291217
+}
+
+.merkle-status.pending{
+  color:var(--amber);
+  border-color:#66511f;
+  background:#241d0c
+}
+
+.merkle-meta{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:7px;
+  margin-bottom:11px
+}
+
+.merkle-stat{
+  padding:8px;
+  border:1px solid #202c38;
+  border-radius:7px;
+  background:#0a1118
+}
+
+.merkle-stat .label{
+  color:var(--muted);
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.7px
+}
+
+.merkle-stat .value{
+  margin-top:3px;
+  font-size:12px;
+  font-weight:800
+}
+
+.merkle-root{
+  border:1px solid #263747;
+  background:#080e14;
+  border-radius:8px;
+  padding:9px;
+  margin-bottom:10px
+}
+
+.merkle-root-label{
+  color:var(--muted);
+  font-size:8px;
+  text-transform:uppercase;
+  letter-spacing:.8px;
+  margin-bottom:4px
+}
+
+.merkle-root-value{
+  color:#9bdfff;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:9px;
+  word-break:break-all;
+  line-height:1.4
+}
+
+.merkle-actions{
+  display:flex;
+  gap:7px;
+  flex-wrap:wrap
+}
+
+.merkle-details{
+  margin-top:10px
+}
+
+.merkle-details summary{
+  cursor:pointer;
+  color:#b8c4d0;
+  font-size:10px;
+  padding:6px 0
+}
+
+.merkle-members{
+  margin-top:7px;
+  display:grid;
+  gap:6px
+}
+
+.merkle-member{
+  display:grid;
+  grid-template-columns:70px 1fr;
+  gap:8px;
+  padding:7px;
+  border:1px solid #202c38;
+  border-radius:7px;
+  background:#090f15
+}
+
+.merkle-member-index{
+  font-weight:800;
+  color:#dbe8f1;
+  font-size:9px
+}
+
+.merkle-member-hash{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+  font-size:8px;
+  color:#9bdfff;
+  word-break:break-all
+}
+
+.merkle-verification{
+  margin-top:10px
+}
+
+.merkle-error{
+  margin-top:8px;
+  padding:8px;
+  border:1px solid #67303a;
+  background:#291217;
+  border-radius:7px;
+  color:#ffadb8;
+  font-size:9px
+}
+
+.merkle-error b{
+  display:block;
+  margin-bottom:3px
+}
+
+.merkle-json{
+  margin-top:9px;
+  padding:9px;
+  background:#080d12;
+  border:1px solid var(--line);
+  border-radius:7px;
+  color:#aeb9c5;
+  font-size:8px;
+  white-space:pre-wrap;
+  overflow:auto
+}
+
 @media(max-width:1100px){
   .layout{grid-template-columns:1fr}
   aside{display:none}
@@ -652,6 +889,17 @@ h3{
   .flow .arrow{display:none}
   .metrics{grid-template-columns:repeat(2,1fr)}
   .chain-summary{grid-template-columns:repeat(2,1fr)}
+  .merkle-batches{grid-template-columns:1fr}
+}
+
+@media(max-width:650px){
+  .main{padding:15px}
+  .top{padding:0 14px}
+  .tag{display:none}
+  .hero h1{font-size:26px}
+  .metrics{grid-template-columns:1fr}
+  .chain-summary{grid-template-columns:1fr}
+  .merkle-meta{grid-template-columns:1fr}
 }
 </style>
 </head>
@@ -1640,7 +1888,7 @@ async function renderCases(){
 }
 
 /* =========================================================
-   BLOCKCHAIN VISUALIZATION + ONE-CLICK VERIFICATION
+   HASH CHAIN VERIFICATION
    ========================================================= */
 
 async function verifyCurrentChain(){
@@ -1668,12 +1916,17 @@ async function verifyCurrentChain(){
 
   }catch(error){
 
-    $('chainVerifyResult').innerHTML = `
-      <div class="verify-result failure">
-        <b>Verification request failed</b>
-        <div>${esc(error.message)}</div>
-      </div>
-    `;
+    const resultEl =
+      $('chainVerifyResult');
+
+    if(resultEl){
+      resultEl.innerHTML = `
+        <div class="verify-result failure">
+          <b>Verification request failed</b>
+          <div>${esc(error.message)}</div>
+        </div>
+      `;
+    }
 
   }
 }
@@ -1799,6 +2052,587 @@ function chainBlockHtml(block){
   `;
 }
 
+/* =========================================================
+   MERKLE BATCH FUNCTIONS
+   ========================================================= */
+
+async function loadMerkleBatches(){
+
+  if(!current){
+    return {
+      case_id:null,
+      batches:[]
+    };
+  }
+
+  return await api(
+    '/api/cases/'+current.case_id+'/blockchain/merkle'
+  );
+}
+
+function merkleBatchHtml(batch){
+
+  const verification =
+    batch.verification || null;
+
+  const status =
+    verification?.status ||
+    batch.status ||
+    'UNVERIFIED';
+
+  const valid =
+    verification?.verified === true &&
+    status === 'VALID';
+
+  const blocks =
+    verification?.blocks ||
+    batch.blocks ||
+    [];
+
+  const errors =
+    verification?.errors ||
+    [];
+
+  const badgeClass =
+    verification
+      ? valid
+        ? 'valid'
+        : 'invalid'
+      : 'pending';
+
+  const badgeText =
+    verification
+      ? valid
+        ? 'VALID ✓'
+        : 'COMPROMISED ✕'
+      : 'UNVERIFIED';
+
+  return `
+
+    <div class="merkle-card ${badgeClass}">
+
+      <div class="merkle-card-head">
+
+        <div>
+
+          <div class="kicker">
+            Merkle batch
+          </div>
+
+          <div class="merkle-id">
+            ${esc(batch.batch_id)}
+          </div>
+
+        </div>
+
+        <span class="merkle-status ${badgeClass}">
+          ${badgeText}
+        </span>
+
+      </div>
+
+      <div class="merkle-meta">
+
+        <div class="merkle-stat">
+
+          <div class="label">
+            Events
+          </div>
+
+          <div class="value">
+            ${batch.event_count ?? '—'}
+          </div>
+
+        </div>
+
+        <div class="merkle-stat">
+
+          <div class="label">
+            Start block
+          </div>
+
+          <div class="value">
+            #${batch.start_block ?? '—'}
+          </div>
+
+        </div>
+
+        <div class="merkle-stat">
+
+          <div class="label">
+            End block
+          </div>
+
+          <div class="value">
+            #${batch.end_block ?? '—'}
+          </div>
+
+        </div>
+
+      </div>
+
+      <div class="merkle-root">
+
+        <div class="merkle-root-label">
+          Merkle root
+        </div>
+
+        <div class="merkle-root-value">
+          ${esc(batch.merkle_root || '—')}
+        </div>
+
+      </div>
+
+      <div class="muted" style="font-size:9px;margin-bottom:10px">
+
+        Created
+        ${
+          batch.created_at
+            ? new Date(batch.created_at).toLocaleString()
+            : '—'
+        }
+
+      </div>
+
+      ${
+        verification
+          ? `
+            <div
+              class="verify-result ${
+                valid ? 'success' : 'failure'
+              }"
+              style="margin:0 0 10px"
+            >
+
+              <b>
+                ${
+                  valid
+                    ? '✓ Merkle verification passed'
+                    : '✕ Merkle verification failed'
+                }
+              </b>
+
+              <div style="margin-top:4px">
+                Status:
+                ${esc(status)}
+              </div>
+
+              ${
+                verification.recomputed_root
+                  ? `
+                    <div style="margin-top:3px">
+                      Recomputed root:
+                      <span class="hash">
+                        ${esc(verification.recomputed_root)}
+                      </span>
+                    </div>
+                  `
+                  : ''
+              }
+
+            </div>
+          `
+          : ''
+      }
+
+      <div class="merkle-actions">
+
+        <button
+          class="primary"
+          onclick="verifyMerkleBatch('${esc(batch.batch_id)}')"
+        >
+          🔍 VERIFY
+        </button>
+
+      </div>
+
+      ${
+        blocks.length
+          ? `
+            <details class="merkle-details">
+
+              <summary>
+                View block membership (${blocks.length})
+              </summary>
+
+              <div class="merkle-members">
+
+                ${
+                  blocks.map(
+                    block =>
+                      `
+                        <div class="merkle-member">
+
+                          <div class="merkle-member-index">
+                            BLOCK #${esc(
+                              block.block_index ??
+                              block.index ??
+                              '—'
+                            )}
+                          </div>
+
+                          <div class="merkle-member-hash">
+
+                            ${
+                              esc(
+                                block.block_hash ||
+                                block.leaf_hash ||
+                                JSON.stringify(block)
+                              )
+                            }
+
+                          </div>
+
+                        </div>
+                      `
+                  ).join('')
+                }
+
+              </div>
+
+            </details>
+          `
+          : ''
+      }
+
+      ${
+        errors.length
+          ? `
+            <div class="merkle-error">
+
+              <b>
+                Verification errors
+              </b>
+
+              ${
+                errors.map(
+                  error =>
+                    `<div>${esc(
+                      typeof error === 'string'
+                        ? error
+                        : error.error || JSON.stringify(error)
+                    )}</div>`
+                ).join('')
+              }
+
+            </div>
+          `
+          : ''
+      }
+
+      ${
+        verification
+          ? `
+            <details class="merkle-details">
+
+              <summary>
+                View verification data
+              </summary>
+
+              <pre class="merkle-json">${esc(
+                JSON.stringify(
+                  verification,
+                  null,
+                  2
+                )
+              )}</pre>
+
+            </details>
+          `
+          : ''
+      }
+
+    </div>
+  `;
+}
+
+async function createMerkleBatch(){
+
+  if(!current){
+    return;
+  }
+
+  const button =
+    $('createMerkleBtn');
+
+  if(button){
+    button.disabled = true;
+    button.textContent = 'Creating…';
+  }
+
+  try{
+
+    const result =
+      await api(
+        '/api/cases/'+current.case_id+'/blockchain/merkle',
+        {
+          method:'POST'
+        }
+      );
+
+    await renderMerkle({
+      actionResult:result
+    });
+
+  }catch(error){
+
+    const resultEl =
+      $('merkleActionResult');
+
+    if(resultEl){
+
+      resultEl.innerHTML = `
+        <div class="verify-result failure">
+
+          <b>
+            Could not create Merkle batch
+          </b>
+
+          <div style="margin-top:4px">
+            ${esc(error.message)}
+          </div>
+
+        </div>
+      `;
+
+    }
+
+  }finally{
+
+    const refreshed =
+      $('createMerkleBtn');
+
+    if(refreshed){
+      refreshed.disabled = false;
+      refreshed.textContent = '🌳 CREATE MERKLE BATCH';
+    }
+
+  }
+}
+
+async function verifyMerkleBatch(batchId){
+
+  const safeId =
+    encodeURIComponent(batchId);
+
+  try{
+
+    const result =
+      await api(
+        '/api/blockchain/merkle/'+safeId+'/verify'
+      );
+
+    await renderMerkle({
+      verificationBatchId:batchId,
+      verificationResult:result
+    });
+
+  }catch(error){
+
+    const container =
+      $('merkleContent');
+
+    if(container){
+
+      const errorBox =
+        document.createElement('div');
+
+      errorBox.className =
+        'verify-result failure';
+
+      errorBox.innerHTML = `
+        <b>Merkle verification failed</b>
+
+        <div style="margin-top:4px">
+          ${esc(error.message)}
+        </div>
+      `;
+
+      container.prepend(errorBox);
+
+    }
+
+  }
+}
+
+async function renderMerkle(options={}){
+
+  const container =
+    $('merkleContent');
+
+  if(!container || !current){
+    return;
+  }
+
+  try{
+
+    const data =
+      await loadMerkleBatches();
+
+    let batches =
+      data.batches || [];
+
+    /*
+     * Preserve the verification response while reloading the
+     * persistent batch list. This fixes the old behavior where
+     * verification succeeded but the card immediately returned
+     * to UNVERIFIED.
+     */
+
+    if(options.verificationResult){
+
+      batches =
+        batches.map(
+          batch =>
+            batch.batch_id ===
+            options.verificationBatchId
+              ? {
+                  ...batch,
+                  verification:
+                    options.verificationResult
+                }
+              : batch
+        );
+
+    }
+
+    const actionResult =
+      options.actionResult || null;
+
+    container.innerHTML = `
+
+      ${
+        actionResult
+          ? `
+            <div id="merkleActionResult">
+
+              <div class="verify-result ${
+                actionResult.created
+                  ? 'success'
+                  : 'failure'
+              }">
+
+                <b>
+                  ${
+                    actionResult.created
+                      ? '✓ Merkle batch created'
+                      : 'No new batch created'
+                  }
+                </b>
+
+                <div style="margin-top:4px">
+
+                  ${
+                    actionResult.reason
+                      ? esc(actionResult.reason)
+                      : actionResult.batch
+                        ? `
+                          ${actionResult.batch.event_count}
+                          events sealed into
+                          ${esc(actionResult.batch.batch_id)}
+                        `
+                        : ''
+                  }
+
+                </div>
+
+              </div>
+
+            </div>
+          `
+          : `
+            <div id="merkleActionResult"></div>
+          `
+      }
+
+      ${
+        batches.length
+          ? `
+            <div class="merkle-batches">
+
+              ${
+                batches.map(
+                  batch =>
+                    merkleBatchHtml(batch)
+                ).join('')
+              }
+
+            </div>
+          `
+          : `
+            <div class="merkle-empty">
+
+              <div style="font-size:24px;margin-bottom:5px">
+                🌳
+              </div>
+
+              <b>
+                No Merkle batches yet
+              </b>
+
+              <div style="margin-top:4px">
+                Create a batch to seal the current unbatched
+                blockchain events into a Merkle root.
+              </div>
+
+            </div>
+          `
+      }
+
+    `;
+
+  }catch(error){
+
+    container.innerHTML = `
+
+      <div class="verify-result failure">
+
+        <b>
+          Could not load Merkle batches
+        </b>
+
+        <div style="margin-top:4px">
+          ${esc(error.message)}
+        </div>
+
+      </div>
+
+    `;
+
+  }
+}
+
+async function refreshMerkle(){
+
+  const button =
+    $('refreshMerkleBtn');
+
+  if(button){
+    button.disabled = true;
+    button.textContent = 'Refreshing…';
+  }
+
+  try{
+
+    await renderMerkle();
+
+  }finally{
+
+    const refreshed =
+      $('refreshMerkleBtn');
+
+    if(refreshed){
+      refreshed.disabled = false;
+      refreshed.textContent = '↻ REFRESH';
+    }
+
+  }
+}
+
+/* =========================================================
+   BLOCKCHAIN AUDIT VIEW
+   ========================================================= */
+
 async function renderChain(verificationOverride=null){
 
   if(!current){
@@ -1811,7 +2645,9 @@ async function renderChain(verificationOverride=null){
           Integrity layer
         </div>
 
-        <h1>Blockchain audit</h1>
+        <h1>
+          Blockchain audit
+        </h1>
 
         <p>
           Select a case first. The audit view will then display
@@ -1822,13 +2658,16 @@ async function renderChain(verificationOverride=null){
 
       <div class="card">
 
-        <h2>Select a case first</h2>
+        <h2>
+          Select a case first
+        </h2>
 
         <p class="muted">
           Open the investigation lab, then return here.
         </p>
 
       </div>
+
     `;
 
     return;
@@ -1853,7 +2692,9 @@ async function renderChain(verificationOverride=null){
         Integrity layer
       </div>
 
-      <h1>Blockchain audit</h1>
+      <h1>
+        Blockchain audit
+      </h1>
 
       <p>
         This prototype uses an append-only SHA-256 hash chain.
@@ -1875,8 +2716,9 @@ async function renderChain(verificationOverride=null){
               valid ? 'valid' : 'invalid'
             }"
           >
+
             <span>
-              ${valid ? '●' : '●'}
+              ●
             </span>
 
             ${
@@ -1884,6 +2726,7 @@ async function renderChain(verificationOverride=null){
                 ? 'CHAIN VERIFIED'
                 : 'CHAIN COMPROMISED'
             }
+
           </div>
 
           <div
@@ -1912,6 +2755,7 @@ async function renderChain(verificationOverride=null){
             valid ? 'success' : 'failure'
           }"
         >
+
           <b>
             ${
               valid
@@ -1921,12 +2765,15 @@ async function renderChain(verificationOverride=null){
           </b>
 
           <div style="margin-top:4px">
+
             ${
               valid
                 ? 'Every stored block hash and chain link currently matches.'
                 : `${verification.errors?.length||0} integrity issue(s) detected.`
             }
+
           </div>
+
         </div>
 
       </div>
@@ -1934,6 +2781,7 @@ async function renderChain(verificationOverride=null){
       <div class="chain-summary">
 
         <div class="chain-stat">
+
           <div class="label">
             Chain status
           </div>
@@ -1949,6 +2797,7 @@ async function renderChain(verificationOverride=null){
                 : 'COMPROMISED'
             }
           </div>
+
         </div>
 
         <div class="chain-stat">
@@ -2082,8 +2931,67 @@ async function renderChain(verificationOverride=null){
 
       </details>
 
+      <!-- =====================================================
+           MERKLE BATCH AUDIT
+           ===================================================== -->
+
+      <div class="merkle-section">
+
+        <div class="merkle-header">
+
+          <div>
+
+            <div class="kicker">
+              🌳 Cryptographic batching
+            </div>
+
+            <h2>
+              Merkle batch
+            </h2>
+
+            <p class="merkle-intro">
+              Group blockchain events into a cryptographic Merkle
+              batch. The root provides a compact integrity proof
+              for the events sealed in this batch.
+            </p>
+
+          </div>
+
+          <div class="merkle-header-actions">
+
+            <button
+              id="refreshMerkleBtn"
+              onclick="refreshMerkle()"
+            >
+              ↻ REFRESH
+            </button>
+
+            <button
+              id="createMerkleBtn"
+              class="primary"
+              onclick="createMerkleBatch()"
+            >
+              🌳 CREATE MERKLE BATCH
+            </button>
+
+          </div>
+
+        </div>
+
+        <div id="merkleContent">
+
+          <div class="merkle-empty">
+            Loading Merkle batches…
+          </div>
+
+        </div>
+
+      </div>
+
     </div>
   `;
+
+  await renderMerkle();
 }
 
 renderTutorial();

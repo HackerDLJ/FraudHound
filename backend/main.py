@@ -288,6 +288,36 @@ def anchor(case_id: str):
     )
 
 
+@app.post("/api/cases/{case_id}/blockchain/merkle")
+def create_merkle_batch(case_id: str):
+    if not mem.get(case_id):
+        raise HTTPException(404, "Case not found")
+
+    try:
+        return ledger.create_merkle_batch(case_id)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+
+
+@app.get("/api/cases/{case_id}/blockchain/merkle")
+def list_merkle_batches(case_id: str):
+    if not mem.get(case_id):
+        raise HTTPException(404, "Case not found")
+
+    return {
+        "case_id": case_id,
+        "batches": ledger.list_merkle_batches(case_id),
+    }
+
+
+@app.get("/api/blockchain/merkle/{batch_id}/verify")
+def verify_merkle_batch(batch_id: str):
+    try:
+        return ledger.verify_merkle_batch(batch_id)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+
+
 @app.get("/api/blockchain/verify/{case_id}")
 def verify_blockchain(case_id: str):
     if not mem.get(case_id):
