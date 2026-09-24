@@ -1,2 +1,8 @@
+[project]
+name = "fraudhound"
+version = "3.0.0"
+description = "Agentic AI fraud investigation and next-best-action platform"
+requires-python = ">=3.12,<3.15"
+
 [tool.vercel]
 entrypoint = "backend.main:app"
