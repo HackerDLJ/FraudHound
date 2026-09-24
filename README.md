@@ -1,103 +1,154 @@
-# FraudHound v0.3 — Agentic Fraud Investigation + Blockchain Audit
+# FraudHound v3.0
+## Agentic Fraud Investigation + Graph Intelligence + Blockchain Audit
 
-FraudHound is a hackathon prototype for graph-powered fraud investigation. It separates deterministic evidence gathering from agent reasoning and adds an append-only blockchain-style integrity layer.
+FraudHound is an agentic fraud investigation platform designed to help analysts investigate suspicious financial activity, connect related entities, gather structured evidence, reason over that evidence, and recommend controlled next-best actions.
 
-## What changed in v0.3
+The system combines:
 
-- Guided in-app **FraudHound Academy** tutorial before the analyst workspace.
-- Functional investigation lab with demo scenarios.
-- Risk and confidence shown separately.
-- Evidence-request / reassessment loop.
-- TigerGraph-compatible graph adapter plus deterministic mock adapter.
-- Persistent SQLite case memory.
-- Policy and approval gate.
-- **Blockchain audit layer:** SHA-256 hash-chained events, verification endpoint, case anchoring, and UI audit view.
-- Blockchain stores hashes and metadata, not raw PII or transaction payloads.
+- Graph-powered investigation
+- Fraud-ring intelligence
+- Deterministic risk and policy logic
+- Controlled agent reasoning
+- Optional LLM reasoning
+- Strict tool and argument validation
+- Human approval gates
+- Persistent case memory
+- Blockchain-style audit integrity
+- Analyst-facing investigation workflows
 
-## Architecture
+FraudHound is designed around a core principle:
 
-```text
-HHGOA_IEEE / future production data
-            |
-            v
-       TigerGraph
-            |
-            v
-    Investigation Tools
-            |
-      +-----+------+
-      |            |
-   Case Memory   Policy/RAG
-      |            |
-      +-----+------+
-            v
-      Agent Controller
-            |
-     Risk + Confidence
-            |
-     More evidence?
-       /        \
-     yes         no
-      |           |
- Evidence      NBA
-      |           |
-      +-----+-----+
-            v
-      Approval Gate
-            |
-      Execute/Simulate
-            |
-            v
-   Blockchain Audit Layer
-            |
-            v
-      Analyst Dashboard
-```
+> **AI may reason over evidence, but deterministic controls remain authoritative over actions.**
 
-## Run locally
+---
 
-Create a virtual environment first:
+# What is new in v3.0?
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install -r requirements.txt
-python -m uvicorn backend.main:app --reload
-```
+FraudHound v3.0 extends the original investigation workflow with a controlled agentic reasoning architecture.
 
-Open `http://127.0.0.1:8000`.
+### Core additions
 
-## Important dataset note
+- **Fraud-ring detection**
+  - Detects connected account clusters.
+  - Correlates shared devices, IP addresses, transactions, and historical fraud associations.
+  - Produces structured ring evidence with confidence and explanations.
 
-The repository intentionally does not invent or bundle HHGOA_IEEE benchmark answers. Put the supplied dataset under `data/HHGOA_IEEE/` or set `HHGOA_DATA_DIR`. Run:
+- **Controlled reasoning boundary**
+  - Separates reasoning from authoritative investigation and action logic.
+  - Reasoning can recommend the next investigation tool.
+  - The deterministic controller remains authoritative over risk, policy, approval, and execution.
 
-```bash
-python scripts/discover_dataset.py
-```
+- **LLM reasoning provider**
+  - Supports an injected LLM client through a controlled provider boundary.
+  - LLM output is parsed and validated before it can influence the investigation workflow.
+  - Invalid or unsafe responses fall back to deterministic reasoning.
 
-before implementing the production ingestion mapping.
+- **Tool registry**
+  - Every investigation tool is explicitly registered.
+  - Required arguments and optional arguments are validated.
+  - Argument types and constrained values are checked before execution.
+  - Unknown tools and unexpected arguments are rejected.
 
-## Blockchain design
+- **Agent safety evaluation**
+  - Tests malicious tool selection.
+  - Tests malformed LLM output.
+  - Tests unauthorized fields.
+  - Tests direct action-command injection.
+  - Tests SQL/GSQL tool rejection.
+  - Tests tool execution isolation.
 
-`backend/blockchain/ledger.py` implements a local append-only adapter. Each event contains:
+- **GraphRAG-style evidence context**
+  - Reasoning receives compact structured graph evidence rather than unrestricted raw data access.
+  - Evidence includes provenance and investigation context.
 
-- event type
-- payload SHA-256
-- previous block hash
-- block hash
-- timestamp
-- case ID
+- **Blockchain audit integrity**
+  - Investigation events are recorded in a hash-chained append-only ledger.
+  - Case audit chains can be verified independently.
+  - Raw customer PII and transaction payloads are not placed on-chain.
 
-Use the interface as the seam for a permissioned production ledger such as Hyperledger Fabric. Do not put raw customer PII on-chain.
+---
 
-## API additions
+# Architecture
 
 ```text
-GET  /api/cases/{case_id}/blockchain
-POST /api/cases/{case_id}/blockchain/anchor
-GET  /api/blockchain/verify/{case_id}
-```
-
-## Tutorial flow
-
-The UI intentionally opens in **FraudHound Academy**. Complete the lessons, launch the ambiguous scenario, submit simulated step-up authentication, inspect the reassessment, then open Blockchain Audit to verify the case chain.
+                    Investigation Data
+                           |
+                           v
+                    +-------------+
+                    | TigerGraph  |
+                    | / Graph     |
+                    | Adapter     |
+                    +-------------+
+                           |
+                           v
+                 +---------------------+
+                 | Investigation Tools |
+                 +---------------------+
+                           |
+                           v
+                 +---------------------+
+                 |   Tool Registry     |
+                 |---------------------|
+                 | Registered tools    |
+                 | Required arguments  |
+                 | Type validation     |
+                 | Argument validation |
+                 +---------------------+
+                           |
+                           v
+                  +----------------+
+                  | Case / Graph   |
+                  | Evidence       |
+                  +----------------+
+                           |
+             +-------------+-------------+
+             |                           |
+             v                           v
+     Fraud-Ring Detection        Pattern Detection
+             |                           |
+             +-------------+-------------+
+                           |
+                           v
+                  +----------------+
+                  | Risk +         |
+                  | Confidence     |
+                  +----------------+
+                           |
+                           v
+                  +----------------+
+                  | Reasoning      |
+                  | Boundary       |
+                  +----------------+
+                     |          |
+          +----------+          +----------+
+          |                                |
+          v                                v
+ Deterministic Provider             LLM Provider
+          |                                |
+          +---------------+----------------+
+                          |
+                          v
+                  Validated Recommendation
+                          |
+                          v
+                  Deterministic Controller
+                          |
+             +------------+-------------+
+             |                          |
+             v                          v
+        More Evidence?             Next Action
+             |                          |
+             v                          v
+       Evidence Loop             Policy Engine
+                                        |
+                                        v
+                                  Approval Gate
+                                        |
+                                        v
+                                  Action Execution
+                                        |
+                                        v
+                              Blockchain Audit Ledger
+                                        |
+                                        v
+                                Analyst Dashboard
