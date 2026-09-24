@@ -4,7 +4,10 @@ version = "3.0.0"
 description = "Agentic AI fraud investigation and next-best-action platform"
 requires-python = ">=3.12,<3.15"
 dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
     "python-dotenv>=1.0",
+    "pydantic>=2.0",
 ]
 
 [tool.vercel]
