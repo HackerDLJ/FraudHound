@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any, Callable, Protocol
 
@@ -29,12 +30,7 @@ def build_evidence_context(case: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True)
 class ReasoningResult:
-    """Structured output from the reasoning boundary.
-
-    The reasoning layer may recommend a registered tool, but it never
-    executes tools itself. Tool execution remains the responsibility of
-    ToolRegistry.
-    """
+    """Structured output from the reasoning boundary."""
 
     selected_tool: str | None = None
     tool_arguments: dict[str, Any] = field(default_factory=dict)
@@ -55,16 +51,7 @@ class ReasoningProvider(Protocol):
 
 
 class DeterministicReasoningProvider:
-    """Safe deterministic baseline for the reasoning boundary.
-
-    Tool selection is based only on the compact evidence context and the
-    registered tool set supplied by the caller. The provider never executes
-    a tool itself.
-
-    The selection order preserves the Phase 5A reasoning contract:
-    graph neighborhood first, then transaction history, then transaction
-    record.
-    """
+    """Safe deterministic baseline for the reasoning boundary."""
 
     def reason(
         self,
@@ -83,8 +70,6 @@ class DeterministicReasoningProvider:
         account_id = transaction.get("account_id")
         transaction_id = transaction.get("transaction_id")
 
-        # Preserve the Phase 5A default: graph neighborhood is preferred
-        # whenever it is available and we have an entity to investigate.
         if "get_graph_neighborhood" in available_tools:
             if account_id:
                 selected_tool = "get_graph_neighborhood"
@@ -99,24 +84,22 @@ class DeterministicReasoningProvider:
                     "depth": 2,
                 }
 
-        # If graph retrieval is unavailable, fall back to transaction history.
-        if selected_tool is None and "get_transaction_history" in available_tools:
-            if account_id:
-                selected_tool = "get_transaction_history"
-                arguments = {
-                    "account_id": account_id,
-                }
+        if (
+            selected_tool is None
+            and "get_transaction_history" in available_tools
+            and account_id
+        ):
+            selected_tool = "get_transaction_history"
+            arguments = {"account_id": account_id}
 
-        # If neither graph nor history is available, retrieve the transaction
-        # record directly.
-        if selected_tool is None and "get_transaction" in available_tools:
-            if transaction_id:
-                selected_tool = "get_transaction"
-                arguments = {
-                    "transaction_id": transaction_id,
-                }
+        if (
+            selected_tool is None
+            and "get_transaction" in available_tools
+            and transaction_id
+        ):
+            selected_tool = "get_transaction"
+            arguments = {"transaction_id": transaction_id}
 
-        # Evidence-source fallback for contexts without transaction identity.
         if selected_tool is None and evidence:
             first_evidence = evidence[-1]
 
@@ -150,11 +133,7 @@ class DeterministicReasoningProvider:
 
 
 class CallableReasoningProvider:
-    """Adapter for an external reasoning callable.
-
-    The callable is responsible only for producing structured reasoning data.
-    It cannot execute application tools through this adapter.
-    """
+    """Adapter for an external reasoning callable."""
 
     def __init__(
         self,
@@ -183,15 +162,127 @@ class CallableReasoningProvider:
         return validate_reasoning_result(raw, available_tools)
 
 
+class LLMClient(Protocol):
+    """Minimal boundary expected from an external LLM client."""
+
+    def generate(
+        self,
+        prompt: str,
+    ) -> str | dict[str, Any]:
+        ...
+
+
+class LLMReasoningProvider:
+    """LLM-backed reasoning provider with a strict structured-output boundary.
+
+    The LLM receives only the compact investigation context and the registered
+    tool names. It cannot execute tools itself.
+
+    The client is injected so tests remain offline and no vendor SDK is
+    required by the core FraudHound package.
+    """
+
+    def __init__(
+        self,
+        client: LLMClient | Callable[[str], str | dict[str, Any]],
+        fallback: ReasoningProvider | None = None,
+    ):
+        self.client = client
+        self.fallback = fallback or DeterministicReasoningProvider()
+
+    def reason(
+        self,
+        context: dict[str, Any],
+        available_tools: list[str],
+    ) -> ReasoningResult:
+        prompt = self._build_prompt(context, available_tools)
+
+        try:
+            if callable(self.client):
+                raw = self.client(prompt)
+            else:
+                raw = self.client.generate(prompt)
+
+            result = self._parse_response(raw)
+
+            return validate_reasoning_result(
+                result,
+                available_tools,
+            )
+
+        except (TypeError, ValueError, PermissionError, json.JSONDecodeError):
+            return self.fallback.reason(
+                context,
+                available_tools,
+            )
+
+    @staticmethod
+    def _build_prompt(
+        context: dict[str, Any],
+        available_tools: list[str],
+    ) -> str:
+        """Build a bounded prompt containing only retrieved case context."""
+        payload = {
+            "case_context": context,
+            "available_tools": available_tools,
+            "output_schema": {
+                "selected_tool": "string or null",
+                "tool_arguments": "object",
+                "evidence_summary": "string",
+                "uncertainty": "array of strings",
+                "explanation": "string",
+            },
+            "constraints": [
+                "Use only the supplied registered tools.",
+                "Never invent a tool name.",
+                "Never execute a tool.",
+                "Do not make the final fraud decision.",
+                "Do not recommend an action outside the supplied evidence.",
+                "Return only the requested structured fields.",
+            ],
+        }
+
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            default=str,
+        )
+
+    @staticmethod
+    def _parse_response(
+        raw: str | dict[str, Any],
+    ) -> dict[str, Any]:
+        if isinstance(raw, dict):
+            return raw
+
+        if not isinstance(raw, str):
+            raise TypeError("LLM response must be a string or dictionary")
+
+        text = raw.strip()
+
+        if text.startswith("```"):
+            lines = text.splitlines()
+
+            if len(lines) >= 3:
+                lines = lines[1:-1]
+
+            text = "\n".join(lines).strip()
+
+        parsed = json.loads(text)
+
+        if not isinstance(parsed, dict):
+            raise TypeError("LLM response JSON must be an object")
+
+        return parsed
+
+
 def validate_reasoning_result(
     result: ReasoningResult | dict[str, Any],
     available_tools: list[str] | None = None,
 ) -> ReasoningResult:
-    """Strictly validate provider output before it can reach ToolRegistry.
+    """Strictly validate provider output before it can reach ToolRegistry."""
 
-    Validation is intentionally strict. Unknown fields and unregistered tools
-    are rejected before anything can reach the application tool boundary.
-    """
     if isinstance(result, ReasoningResult):
         normalized = result
 
