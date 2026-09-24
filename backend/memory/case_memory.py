@@ -153,4 +153,4 @@ class CaseMemory:
             out,
             key=lambda item: item["similarity"],
             reverse=True,
-        )[:limit]        return sorted(out,key=lambda z:z['similarity'],reverse=True)[:limit]
+        )[:limit]
