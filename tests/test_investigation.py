@@ -1,4 +1,3 @@
-
 from pathlib import Path
 
 import pytest
@@ -325,3 +324,175 @@ def test_conflict_resolution_requires_reason():
             "   ",
         )
 
+
+# ------------------------------------------------------------------
+# Phase 4B: fraud-ring integration
+# ------------------------------------------------------------------
+
+
+def test_high_confidence_investigation_detects_fraud_ring():
+    controller, graph = make()
+
+    graph.select_scenario("high_confidence")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="high_confidence"
+            )
+        )
+    )
+
+    assert len(case.fraud_rings) == 1
+
+    ring = case.fraud_rings[0]
+
+    assert ring["ring_id"] == "RING-001"
+    assert ring["account_count"] == 4
+    assert "ACC-001" in ring["account_ids"]
+    assert ring["shared_devices"]
+    assert ring["historical_fraud_accounts"] == [
+        "ACC-SHARED-1"
+    ]
+
+
+def test_fraud_ring_creates_supporting_evidence():
+    controller, graph = make()
+
+    graph.select_scenario("high_confidence")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="high_confidence"
+            )
+        )
+    )
+
+    evidence = next(
+        item
+        for item in case.evidence
+        if item.id == "EVID-FRAUD-RING"
+    )
+
+    assert evidence.kind == "fraud_ring"
+    assert evidence.polarity == "supporting"
+    assert evidence.source == "fraud_ring_detector"
+    assert evidence.strength > 0
+
+
+def test_fraud_ring_creates_pattern_finding():
+    controller, graph = make()
+
+    graph.select_scenario("high_confidence")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="high_confidence"
+            )
+        )
+    )
+
+    ring_pattern = next(
+        pattern
+        for pattern in case.patterns
+        if pattern.pattern == "Coordinated Fraud Ring"
+    )
+
+    assert ring_pattern.confidence == case.fraud_rings[0]["confidence"]
+    assert ring_pattern.supporting_evidence == [
+        "EVID-FRAUD-RING"
+    ]
+    assert ring_pattern.graph_signals
+
+
+def test_fraud_ring_detection_is_audited():
+    controller, graph = make()
+
+    graph.select_scenario("high_confidence")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="high_confidence"
+            )
+        )
+    )
+
+    events = [
+        event.event
+        for event in case.timeline
+    ]
+
+    assert "Fraud ring detected" in events
+
+
+def test_ambiguous_investigation_has_no_fraud_ring():
+    controller, graph = make()
+
+    graph.select_scenario("ambiguous")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="ambiguous"
+            )
+        )
+    )
+
+    assert case.fraud_rings == []
+
+    assert not any(
+        pattern.pattern == "Coordinated Fraud Ring"
+        for pattern in case.patterns
+    )
+
+
+def test_legitimate_investigation_has_no_fraud_ring():
+    controller, graph = make()
+
+    graph.select_scenario("legitimate")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="legitimate"
+            )
+        )
+    )
+
+    assert case.fraud_rings == []
+
+    assert not any(
+        pattern.pattern == "Coordinated Fraud Ring"
+        for pattern in case.patterns
+    )
+
+
+def test_fraud_ring_survives_evidence_update():
+    controller, graph = make()
+
+    graph.select_scenario("ambiguous")
+
+    case = controller.investigate(
+        controller.create_case(
+            InvestigationRequest(
+                scenario="ambiguous"
+            )
+        )
+    )
+
+    request_id = case.evidence_requests[-1].request_id
+
+    case = controller.receive_evidence(
+        case,
+        EvidenceInput(
+            request_id=request_id,
+            result={
+                "customer_authenticated": True
+            },
+        ),
+    )
+
+    assert case.fraud_rings == []

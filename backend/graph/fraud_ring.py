@@ -163,17 +163,33 @@ def _shared_entity_maps(
         device_id -> account IDs
         ip_id     -> account IDs
 
-    This is the important bridge between the heterogeneous graph and
-    account-level fraud-ring detection.
+    Direct relationships are accepted:
+
+        Account -> Device
+        Account -> IP
+
+    Transaction-mediated relationships are also accepted when the graph
+    explicitly contains:
+
+        Account -> Transaction -> Device
+        Account -> Transaction -> IP
+
+    This does not invent a relationship. The account is connected to the
+    shared entity through an explicit transaction path in the graph.
     """
 
     device_accounts: dict[str, set[str]] = defaultdict(set)
     ip_accounts: dict[str, set[str]] = defaultdict(set)
 
+    transaction_accounts: dict[str, set[str]] = defaultdict(set)
+    transaction_devices: dict[str, set[str]] = defaultdict(set)
+    transaction_ips: dict[str, set[str]] = defaultdict(set)
+
     for source, target, _ in edges:
         source_type = _node_type(node_map[source])
         target_type = _node_type(node_map[target])
 
+        # Direct Account -> Device / Device -> Account.
         if (
             source_type in ACCOUNT_TYPES
             and target_type in DEVICE_TYPES
@@ -186,6 +202,7 @@ def _shared_entity_maps(
         ):
             device_accounts[source].add(target)
 
+        # Direct Account -> IP / IP -> Account.
         elif (
             source_type in ACCOUNT_TYPES
             and target_type in IP_TYPES
@@ -197,6 +214,65 @@ def _shared_entity_maps(
             and source_type in IP_TYPES
         ):
             ip_accounts[source].add(target)
+
+        # Account -> Transaction / Transaction -> Account.
+        if (
+            source_type in ACCOUNT_TYPES
+            and target_type in TRANSACTION_TYPES
+        ):
+            transaction_accounts[target].add(source)
+
+        elif (
+            target_type in ACCOUNT_TYPES
+            and source_type in TRANSACTION_TYPES
+        ):
+            transaction_accounts[source].add(target)
+
+        # Transaction -> Device / Device -> Transaction.
+        if (
+            source_type in TRANSACTION_TYPES
+            and target_type in DEVICE_TYPES
+        ):
+            transaction_devices[source].add(target)
+
+        elif (
+            target_type in TRANSACTION_TYPES
+            and source_type in DEVICE_TYPES
+        ):
+            transaction_devices[target].add(source)
+
+        # Transaction -> IP / IP -> Transaction.
+        if (
+            source_type in TRANSACTION_TYPES
+            and target_type in IP_TYPES
+        ):
+            transaction_ips[source].add(target)
+
+        elif (
+            target_type in TRANSACTION_TYPES
+            and source_type in IP_TYPES
+        ):
+            transaction_ips[target].add(source)
+
+    # Resolve explicit Account -> Transaction -> Device paths.
+    for transaction_id, accounts in transaction_accounts.items():
+        devices = transaction_devices.get(
+            transaction_id,
+            set(),
+        )
+
+        for device_id in devices:
+            device_accounts[device_id].update(accounts)
+
+    # Resolve explicit Account -> Transaction -> IP paths.
+    for transaction_id, accounts in transaction_accounts.items():
+        ips = transaction_ips.get(
+            transaction_id,
+            set(),
+        )
+
+        for ip_id in ips:
+            ip_accounts[ip_id].update(accounts)
 
     return dict(device_accounts), dict(ip_accounts)
 
@@ -217,14 +293,6 @@ def _build_account_adjacency(
     1. There is a direct Account -> Account edge.
     2. They share a device.
     3. They share an IP address.
-
-    This allows a structure such as:
-
-        A1 -> D1 <- A2 <- D1 -> A3
-
-    to become the account cluster:
-
-        A1 <-> A2 <-> A3
     """
 
     adjacency: dict[str, set[str]] = {
@@ -470,6 +538,7 @@ def detect_fraud_rings(
     - direct account relationships
     - shared devices
     - shared IP addresses
+    - explicit account -> transaction -> device/IP paths
 
     Additional evidence includes:
 

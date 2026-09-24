@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from backend.agent.pattern_precedence import apply_precedence
+from backend.graph.fraud_ring import detect_fraud_rings
 from backend.memory.case_memory import CaseMemory
 from backend.models.schemas import (
     ActionInput,
@@ -104,6 +105,89 @@ class FraudHoundController:
         return case
 
     # ------------------------------------------------------------------
+    # Fraud-ring detection
+    # ------------------------------------------------------------------
+
+    def _detect_fraud_rings(
+        self,
+        case: Case,
+        neighborhood: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        nodes = neighborhood.get("nodes", [])
+        edges = neighborhood.get("edges", [])
+
+        rings = detect_fraud_rings(
+            nodes,
+            edges,
+            min_accounts=3,
+        )
+
+        case.fraud_rings = rings
+
+        if rings:
+            self._event(
+                case,
+                "Fraud ring detected",
+                tool="fraud_ring_detector",
+                input={
+                    "node_count": len(nodes),
+                    "edge_count": len(edges),
+                    "min_accounts": 3,
+                },
+                output={
+                    "ring_count": len(rings),
+                    "rings": rings,
+                },
+            )
+
+        return rings
+
+    def _add_fraud_ring_evidence(
+        self,
+        case: Case,
+        rings: list[dict[str, Any]],
+    ) -> None:
+        if not rings:
+            return
+
+        strongest_ring = rings[0]
+
+        evidence_id = "EVID-FRAUD-RING"
+
+        if any(
+            evidence.id == evidence_id
+            for evidence in case.evidence
+        ):
+            return
+
+        account_count = strongest_ring["account_count"]
+        confidence = strongest_ring["confidence"]
+
+        case.evidence.append(
+            Evidence(
+                id=evidence_id,
+                kind="fraud_ring",
+                statement=(
+                    f"Graph analysis identified a connected cluster "
+                    f"of {account_count} accounts with shared "
+                    "infrastructure or account relationships."
+                ),
+                source="fraud_ring_detector",
+                polarity="supporting",
+                strength=confidence,
+                metadata={
+                    "ring_id": strongest_ring["ring_id"],
+                    "account_ids": strongest_ring["account_ids"],
+                    "shared_devices": strongest_ring["shared_devices"],
+                    "shared_ips": strongest_ring["shared_ips"],
+                    "historical_fraud_accounts": (
+                        strongest_ring["historical_fraud_accounts"]
+                    ),
+                },
+            )
+        )
+
+    # ------------------------------------------------------------------
     # Investigation
     # ------------------------------------------------------------------
 
@@ -141,6 +225,15 @@ class FraudHoundController:
         ]
 
         case.transactions = [transaction]
+
+        # --------------------------------------------------------------
+        # Fraud-ring detection
+        # --------------------------------------------------------------
+
+        fraud_rings = self._detect_fraud_rings(
+            case,
+            neighborhood,
+        )
 
         # --------------------------------------------------------------
         # Evidence
@@ -262,6 +355,11 @@ class FraudHoundController:
                 )
             )
 
+        self._add_fraud_ring_evidence(
+            case,
+            fraud_rings,
+        )
+
         # --------------------------------------------------------------
         # Pattern detection
         # --------------------------------------------------------------
@@ -280,6 +378,20 @@ class FraudHoundController:
             PatternFinding(**pattern)
             for pattern in raw_patterns
         ]
+
+        if fraud_rings:
+            strongest_ring = fraud_rings[0]
+
+            case.patterns.append(
+                PatternFinding(
+                    pattern="Coordinated Fraud Ring",
+                    confidence=strongest_ring["confidence"],
+                    supporting_evidence=["EVID-FRAUD-RING"],
+                    contradicting_evidence=[],
+                    graph_signals=strongest_ring["signals"],
+                    explanation=strongest_ring["explanation"],
+                )
+            )
 
         # --------------------------------------------------------------
         # Risk and confidence
@@ -313,6 +425,12 @@ class FraudHoundController:
 
         if contradicting_count:
             confidence = max(confidence, 0.78)
+
+        if fraud_rings:
+            confidence = max(
+                confidence,
+                fraud_rings[0]["confidence"],
+            )
 
         confidence = min(confidence, 0.99)
 
@@ -460,6 +578,7 @@ class FraudHoundController:
                 "action": action.action,
                 "risk_score": risk_score,
                 "confidence": confidence,
+                "fraud_ring_count": len(fraud_rings),
             },
             risk_after=risk_score,
             confidence_after=confidence,
@@ -869,6 +988,11 @@ class FraudHoundController:
 
         graph_signals = neighborhood.get("signals", {})
 
+        fraud_rings = self._detect_fraud_rings(
+            case,
+            neighborhood,
+        )
+
         case.evidence = [
             Evidence(
                 id="EVID-TRANSACTION",
@@ -985,6 +1109,11 @@ class FraudHoundController:
                 )
             )
 
+        self._add_fraud_ring_evidence(
+            case,
+            fraud_rings,
+        )
+
         case.evidence.extend(authenticated_evidence)
 
         raw_patterns = self.graph.detect_patterns(transaction_id).get(
@@ -1001,6 +1130,20 @@ class FraudHoundController:
             PatternFinding(**pattern)
             for pattern in raw_patterns
         ]
+
+        if fraud_rings:
+            strongest_ring = fraud_rings[0]
+
+            case.patterns.append(
+                PatternFinding(
+                    pattern="Coordinated Fraud Ring",
+                    confidence=strongest_ring["confidence"],
+                    supporting_evidence=["EVID-FRAUD-RING"],
+                    contradicting_evidence=[],
+                    graph_signals=strongest_ring["signals"],
+                    explanation=strongest_ring["explanation"],
+                )
+            )
 
         risk_score = int(transaction.get("risk_score", 0))
 
@@ -1028,6 +1171,12 @@ class FraudHoundController:
 
         if contradicting_count:
             confidence = max(confidence, 0.78)
+
+        if fraud_rings:
+            confidence = max(
+                confidence,
+                fraud_rings[0]["confidence"],
+            )
 
         confidence = min(confidence, 0.99)
 
@@ -1079,6 +1228,7 @@ class FraudHoundController:
                 "action": action.action,
                 "risk_score": risk_score,
                 "confidence": confidence,
+                "fraud_ring_count": len(fraud_rings),
             },
             risk_after=risk_score,
             confidence_after=confidence,
